@@ -1,0 +1,239 @@
+% 1.在测试图像上产生高斯噪声lena图-需能指定均值和方差；
+% 并用多种滤波器恢复图像，分析各自优缺点；
+% 
+
+% 2.在测试图像lena图加入椒盐噪声（椒和盐噪声密度均是0.1）；
+% 用学过的滤波器恢复图像；
+% 在使用反谐波分析Q大于0和小于0的作用；
+
+%算数均值滤波器AMF，几何均值滤波器GMF，
+%谐波均值滤波器HMF，逆谐波均值滤波器IHMF，
+%自适应局部降低噪声滤波器ALRF，
+
+close all
+
+image0 = imread('lena.bmp');
+
+image = double(image0);
+[M,N] = size(image);
+
+%产生噪声图像
+gaussian_image = noise(image,'gaussian',0,10);
+sp_image = noise(image,'sp',0.1,0.1);
+%显示含噪声图像
+figure;
+subplot(1,3,1);imshow(image0);title('原图像');
+subplot(1,3,2);imshow(gaussian_image);title('含高斯噪声的图像');
+subplot(1,3,3);imshow(sp_image);title('含椒盐图像');
+
+%滤波
+g_AMF = my_filter(gaussian_image,'AMF',7);
+g_GMF = my_filter(gaussian_image,'GMF',7);
+g_HMF = my_filter(gaussian_image,'HMF',7);
+g_IHMF = my_filter(gaussian_image,'IHMF',7);
+g_ALRF = my_filter(gaussian_image,'ALRF',7);
+
+figure;
+subplot(2,3,1);imshow(g_AMF);title('AMF');
+subplot(2,3,2);imshow(g_GMF);title('GMF');
+subplot(2,3,3);imshow(g_HMF);title('HMF');
+subplot(2,3,4);imshow(g_IHMF);title('IHMF');
+subplot(2,3,5);imshow(g_ALRF);title('ALRF');
+
+sp_AMF = my_filter(sp_image,'AMF',7);
+sp_GMF = my_filter(sp_image,'GMF',7);
+sp_HMF = my_filter(sp_image,'HMF',7);
+sp_IHMF = my_filter(sp_image,'IHMF',7);
+sp_ALRF = my_filter(sp_image,'ALRF',7);
+
+figure;
+subplot(2,3,1);imshow(sp_AMF);title('AMF');
+subplot(2,3,2);imshow(sp_GMF);title('GMF');
+subplot(2,3,3);imshow(sp_HMF);title('HMF');
+subplot(2,3,4);imshow(sp_IHMF);title('IHMF');
+subplot(2,3,5);imshow(sp_ALRF);title('ALRF');
+
+%------------------------------------------------------------------------
+function  final_image = noise(image,mode,E,sigm)
+image = double(image);
+[M,N] = size(image);
+
+if strcmp(mode,'gaussian')
+    n_gaussian = double(E+sigm.*randn(M,N));
+    final_image = uint8(image+n_gaussian);
+end
+
+if strcmp(mode,'sp') 
+    x = rand(M,N);  
+    g_sp = image;  
+    g_sp(x<=E) = 0;
+    g_sp(x > 1-sigm) = 256; 
+    final_image = uint8(g_sp);
+end
+
+end
+
+%---------------------------------------------------------------------------
+function restore_image = my_filter(image,mode,ts)
+%只用于奇数的模板
+image = double(image);
+[M,N] = size(image);
+k = (ts-1)/2;
+if strcmp(mode,'AMF')
+    for i = 1+k:1:M-k
+        for j = 1+k:N-k
+           image(i,j) = sum(image(i-k:i+k,j-k:j+k),'all')/ts/ts;
+        end
+    end
+end
+
+if strcmp(mode,'GMF')
+    for i = 1+k:1:M-k
+        for j = 1+k:N-k
+           image(i,j) = prod(image(i-k:i+k,j-k:j+k),'all')^(1/ts/ts);
+        end
+    end
+end
+    
+if strcmp(mode,'HMF')
+    for i = 1+k:1:M-k
+        for j = 1+k:N-k
+           image(i,j) = ts^2/(sum(1./image(i-k:i+k,j-k:j+k),'all'));
+        end
+    end
+end
+
+if strcmp(mode,'IHMF')
+    for i = 1+k:1:M-k
+        for j = 1+k:N-k
+            image(i,j) = (sum(image(i-k:i+k,j-k:j+k).^(1.5+1),'all'))...
+                        /(sum(image(i-k:i+k,j-k:j+k).^(1.5),'all'));
+        end
+    end
+end
+
+if strcmp(mode,'ALRF')
+    sigm = var(var(image));
+    for i = 1+k:1:M-k
+        for j = 1+k:N-k
+            image(i,j) = image(i,j)-sigm*(image(i,j)-mean(image(i-k:i+k,j-k:j+k),'all'))...
+                         /var(var(image(i-k:i+k,j-k:j+k)));
+        end
+    end
+end
+
+restore_image = uint8(image);
+
+end
+
+%--------------------------------------------------------------------------
+% 3.推导维纳滤波器并实现下边要求；
+% (a) 实现模糊滤波器如方程Eq. (5.6-11).
+% (b) 模糊lena图像：45度方向，T=1；
+% (c) 再模糊的lena图像中增加高斯噪声，
+%     均值= 0 ，方差=10 pixels 以产生模糊图像；
+% (d)分别利用方程 Eq. (5.8-6)和(5.9-4)，恢复图像；
+%    并分析算法的优缺点.
+
+close all
+
+image0 = imread('lena.bmp');
+image = double(image0);
+[row,column] = size(image);
+
+%填充
+M = 2*row; N = 2*column;
+fftimage = zeros(M,N);
+fftimage(1:row,1:column) = image(:,:);
+trans = zeros(size(fftimage));
+
+%将图像移动到中央----相当于fftshift？
+for i = 1:1:size(fftimage,1)
+   for j = 1:1:size(fftimage,2)
+     trans(i,j) = (-1)^(i+j); 
+   end 
+end
+fftimage = trans.*fftimage;
+%进行Fourier变换
+fftimage = fft2(fftimage);
+%进行变换
+H = zeros(M,N);
+G = zeros(M,N);
+%参数设置 
+T = 1; a = 0.1; b = 0.1;
+
+for i = 1:1:M
+   for j = 1:1:N
+       k = pi*(i*a+j*b);
+      H(i,j) = (T/k)*sin(k)*exp(-sqrt(-1)*k); 
+      G(i,j) = H(i,j)*fftimage(i,j);
+   end
+end
+jimage = ifft2(G);
+mohu_image = abs(jimage);   %这里不用再移吗？
+fimage = mohu_image(1:row,1:column);
+fimage = 256.*fimage./max(max(fimage));
+mohu_image = uint8(fimage);
+
+subplot(1,2,1);imshow(image0);
+subplot(1,2,2);imshow(mohu_image);
+
+%继续添加高斯噪声
+gmohu_image = fimage + 10*randn(row,column);
+%imshow(uint8(gmohu_image));
+
+%使用维纳滤波器
+f = zeros(M,N);
+f(1:row,1:column) = gmohu_image(:,:);
+G = fft2(f.*trans);
+
+F = zeros(M,N);
+MSE = zeros(1,10);
+
+%for K = 0.1:0.1:1
+K = 0.2;
+
+for i = 1:1:M
+   for j = 1:1:N
+       s = abs(H(i,j))^2;
+       F(i,j) = (H(i,j)^(-1)*s/(s+K))*G(i,j);
+   end
+end
+
+f = abs(ifft2(F));
+final = f(1:row,1:column);
+final = 256*final./max(max(final));
+t = uint8(10*K);
+%MSE(1,t) = (M*N)^(-1)*sum((final-image).^2,'all');
+%end
+
+%[A,B] = min(MSE) ;
+
+ figure
+ imshow(uint8(real(final)));
+
+
+%-------------------------------------------------------------------------
+
+close all
+
+image = imread('lena.bmp');
+%image = double(image0);
+
+h = fspecial('motion',50,45);%产生运动模糊图像
+mohu_image = imfilter(image,h);
+g_mohu_image = imnoise(mohu_image,'gaussian',0,0.01);
+
+var = 0.001;
+noisepu = var*prod(size(image));
+[g,LAGRA] = deconvreg(mohu_image,h,noisepu);
+
+subplot(1,3,1);imshow(image);
+subplot(1,3,2);imshow(mohu_image);
+subplot(1,3,3);imshow(g);
+
+
+
+
+
+
